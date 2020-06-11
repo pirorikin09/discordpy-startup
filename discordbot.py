@@ -1,60 +1,63 @@
 import discord
-from discord.ext import commands
 
-import os
+discord_token = '***' # Discordbotのアクセストークンを入力
+discord_voice_channel_id = '' # 特定のボイスチャンネルを指定
+youtube_url = 'https://www.youtube.com/watch?v=FIw-HUP7XK0' # youtubeのURLを指定
 
-bot = commands.Bot(command_prefix="$")
-token = os.environ['DISCORD_BOT_TOKEN']
+voice = None
+player = None
 
-if not discord.opus.is_loaded():
-    discord.opus.load_opus("heroku-buildpack-libopus")
+client = discord.Client()
 
-@bot.command(aliases=["connect","summon"]) #connectやsummonでも呼び出せる
-async def join(ctx):
-    """Botをボイスチャンネルに入室させます。"""
-    voice_state = ctx.author.voice
+@client.event
+async def on_ready():
+    print('Botを起動しました。')
 
-    if (not voice_state) or (not voice_state.channel):
-        await ctx.send("先にボイスチャンネルに入っている必要があります。")
+@client.event
+async def on_message(message):
+    global voice, player
+    msg = message.content
+    if message.author.bot:
         return
-
-    channel = voice_state.channel
-
-    await channel.connect()
-    print("connected to:",channel.name)
-
-
-@bot.command(aliases=["disconnect","bye"])
-async def leave(ctx):
-    """Botをボイスチャンネルから切断します。"""
-    voice_client = ctx.message.guild.voice_client
-
-    if not voice_client:
-        await ctx.send("Botはこのサーバーのボイスチャンネルに参加していません。")
+    
+    if msg == '!play':
+        if message.author.voice_channel is None:
+            await client.send_message(message.channel ,'ボイスチャンネルに参加してからコマンドを打ってください。')
+            return
+        if voice == None:
+            # ボイスチャンネルIDが未指定なら
+            if discord_voice_channel_id == '':
+                voice = await client.join_voice_channel(message.author.voice_channel)
+            # ボイスチャンネルIDが指定されていたら
+            else:
+                voice = await client.join_voice_channel(client.get_channel(discord_voice_channel_id))
+        # 接続済みか確認
+        elif(voice.is_connected() == True):
+            # 再生中の場合は一度停止
+            if(player.is_playing()):
+                player.stop()
+            # ボイスチャンネルIDが未指定なら
+            if discord_voice_channel_id == '':
+                await voice.move_to(message.author.voice_channel)
+            # ボイスチャンネルIDが指定されていたら
+            else:
+                await voice.move_to(client.get_channel(discord_voice_channel_id))
+        # youtubeからダウンロードし、再生
+        player = await voice.create_ytdl_player(youtube_url)
+        player.start()
         return
+    
+    # 再生中の音楽を停止させる
+    if msg == '!stop':
+        if(player.is_playing()):
+                player.stop()
+                return
+    
+    # botをボイスチャットから切断させる
+    if msg == '!disconnect':
+        if voice is not None:
+            await voice.disconnect()
+            voice = None
+            return
 
-    await voice_client.disconnect()
-    await ctx.send("ボイスチャンネルから切断しました。")
-
-
-@bot.command()
-async def play(ctx):
-    """指定された音声ファイルを流します。"""
-    voice_client = ctx.message.guild.voice_client
-
-    if not voice_client:
-        await ctx.send("Botはこのサーバーのボイスチャンネルに参加していません。")
-        return
-
-    if not ctx.message.attachments:
-        await ctx.send("ファイルが添付されていません。")
-        return
-
-    await ctx.message.attachments[0].save("tmp.mp3")
-
-    ffmpeg_audio_source = discord.FFmpegPCMAudio("tmp.mp3")
-    voice_client.play(ffmpeg_audio_source)
-
-    await ctx.send("再生しました。")
-
-bot.run(token)
+client.run(discord_token)
